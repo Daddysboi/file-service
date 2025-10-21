@@ -1,0 +1,14 @@
+export const MILLISECONDS_IN_A_SECOND = 1000;
+export const SECONDS_IN_A_MINUTE = 60;
+export const MINUTES_IN_AN_HOUR = 60;
+export const HOURS_IN_A_DAY = 24;
+export const MILLISECONDS_IN_A_DAY = MILLISECONDS_IN_A_SECOND * SECONDS_IN_A_MINUTE * MINUTES_IN_AN_HOUR * HOURS_IN_A_DAY;
+
+export const EMAIL_VALIDATION_REGEX = /\S+@\S+\.\S+/;
+export const CENTS_PER_UNIT = 100;
+
+export const CERTIFICATE_PREFIX = 'CERT';
+export const CODE_LENGTH = 8;
+export const CERTIFICATE_EXPIRY_DAYS = 365;
+
+export const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
