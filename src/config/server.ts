@@ -42,7 +42,15 @@ const serverConfig = async (app: Express) => {
 
   // Start listening
   server.listen(envConfig.port, () => {
-    logger.info(`Server running on port ${envConfig.port} in ${envConfig.env} mode`);
+    const addr = server.address();
+    const bind = typeof addr === 'string' ? `pipe ${addr}` : `port ${addr?.port}`;
+    logger.info('-------------*----------------------------------');
+    logger.info('|                                               |');
+    logger.info('|              Started File Server              |');
+    logger.info(`|         Server is listening on ${bind}        |`);
+    logger.info('|                                               |');
+    logger.info('-----------*------------------------------------');
+
     if (cluster.isWorker) {
       logger.info(`Worker ${process.pid} started`);
     }
