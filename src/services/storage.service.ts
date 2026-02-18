@@ -9,13 +9,9 @@ import envConfig from '../config/envConfig';
 import { FileCategory } from './file-validation.service';
 import { sanitizeFilename } from './file-validation.service';
 import { getFileMetadataFromCache, setFileMetadataInCache, invalidateFileCache } from './cache.service';
+import { FileMetadataModel } from '../models/file.model';
 
-// Storage types
-export enum StorageType {
-  GRIDFS = 'gridfs',
-  LOCAL = 'local',
-  // S3 storage has been removed to avoid AWS costs
-}
+import { StorageType } from '../types/enums';
 
 // File metadata interface
 export interface FileMetadata {
@@ -133,6 +129,9 @@ export const storeFile = async (
           storageType: StorageType.GRIDFS,
         };
 
+        // Save metadata to database
+        await FileMetadataModel.create({ ...fileMetadata, _id: fileMetadata.id });
+
         // Cache metadata
         await setFileMetadataInCache(fileMetadata.id, fileMetadata);
 
@@ -151,6 +150,9 @@ export const storeFile = async (
           storageType: StorageType.LOCAL,
           path: filePath,
         };
+
+        // Save metadata to database
+        await FileMetadataModel.create({ ...fileMetadata, _id: fileMetadata.id });
 
         // Cache metadata
         await setFileMetadataInCache(fileMetadata.id, fileMetadata);
@@ -211,9 +213,15 @@ export const getFileMetadata = async (id: string): Promise<FileMetadata | null> 
       return cachedMetadata as FileMetadata;
     }
 
-    // If not in cache, retrieve from GridFS
-    // Note: For S3 and local storage, metadata should be stored in a database
-    // This is a simplified implementation that only works for GridFS
+    // If not in cache, retrieve from database
+    const dbMetadata = await FileMetadataModel.findById(id).lean();
+    if (dbMetadata) {
+      // Cache metadata for future requests
+      await setFileMetadataInCache(id, dbMetadata as FileMetadata);
+      return dbMetadata as FileMetadata;
+    }
+
+    // If not in database, try to retrieve from GridFS (for legacy or direct GridFS entries)
     const bucket = getGridFSBucket();
     const files = await bucket.find({ _id: new ObjectId(id) }).toArray();
 
@@ -230,10 +238,13 @@ export const getFileMetadata = async (id: string): Promise<FileMetadata | null> 
       size: file.length,
       category: file.metadata?.category || FileCategory.OTHER,
       uploadDate: file.uploadDate,
-      storageType: StorageType.GRIDFS,
+      storageType: StorageType.GRIDFS, // Assuming GridFS if found here
       thumbnailId: file.metadata?.thumbnailId,
       processingOptions: file.metadata?.processingOptions,
     };
+
+    // Save to database if found in GridFS but not in our metadata collection
+    await FileMetadataModel.create({ ...metadata, _id: metadata.id });
 
     // Cache metadata for future requests
     await setFileMetadataInCache(id, metadata);
@@ -315,6 +326,9 @@ export const deleteFile = async (metadata: FileMetadata): Promise<boolean> => {
         logger.warn(`Error deleting thumbnail: ${error}`);
       }
     }
+
+    // Delete metadata from database
+    await FileMetadataModel.findByIdAndDelete(metadata.id);
 
     // Invalidate cache
     await invalidateFileCache(metadata.id);

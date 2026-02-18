@@ -11,9 +11,9 @@ import {
     retrieveFile,
     deleteFile,
     getPreferredStorageType,
-    StorageType,
     FileMetadata
 } from '../../services/storage.service';
+import { StorageType } from '../../types/enums';
 import {getFileContentFromCache, setFileContentInCache} from '../../services/cache.service';
 import {updateStorageMetrics} from '../../services/monitoring.service';
 import envConfig from '../../config/envConfig';

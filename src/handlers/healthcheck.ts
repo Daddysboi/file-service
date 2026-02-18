@@ -16,6 +16,6 @@ export const healthCheck = async (_req: express.Request, res: express.Response) 
     uptime: process.uptime(),
     dbConnection: dbConnectionStatus,
     timestamp: new Date(),
-    message: 'Welcome to E Commerce API',
+    message: 'Welcome to File Server',
   });
 };

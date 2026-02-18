@@ -2,11 +2,7 @@ import sharp from 'sharp';
 import { Readable } from 'stream';
 import { FileCategory } from './file-validation.service';
 import logger from '../utils/logger';
-
-// Configuration
-const IMAGE_QUALITY = 80; // Default JPEG/WebP quality (0-100)
-const MAX_IMAGE_DIMENSION = 4000; // Maximum dimension for images
-const THUMBNAIL_SIZE = 200; // Thumbnail size in pixels
+import {IMAGE_QUALITY, MAX_IMAGE_DIMENSION, THUMBNAIL_SIZE} from "../utils/constants";
 
 /**
  * Process image file for optimization

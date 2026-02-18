@@ -4,11 +4,9 @@ import os from 'os';
 import { Express } from 'express';
 import logger from '../utils/logger';
 import envConfig from './envConfig';
-import { initRedisClient } from '../services/cache.service';
-import { Socket } from 'net'; // added import
-
-// Graceful shutdown timeout
-const SHUTDOWN_TIMEOUT = 30000; // 30 seconds
+import { initRedisClient } from '../services/cache/redis-cache';
+import { Socket } from 'net';
+import {SHUTDOWN_TIMEOUT} from "../utils/constants"; // added import
 
 // Active connections tracking
 const connections = new Set<Socket>(); // track sockets, not ServerResponse
@@ -18,9 +16,18 @@ const connections = new Set<Socket>(); // track sockets, not ServerResponse
  * @param app Express application
  */
 const serverConfig = async (app: Express) => {
-  // Initialize Redis client for caching if enabled
-  if (envConfig.cachingEnabled && envConfig.redisUrl) {
-    await initRedisClient();
+  // Initialize caching services
+  if (envConfig.cachingEnabled) {
+    if (envConfig.inMemoryCachingEnabled) {
+      logger.info('In-memory caching is enabled');
+    }
+    if (envConfig.redisUrl) {
+      await initRedisClient();
+    } else if (!envConfig.inMemoryCachingEnabled) {
+      logger.warn('No caching mechanism is enabled. This may impact performance.');
+    }
+  } else {
+    logger.info('Caching is disabled');
   }
 
   // Use clustering in production if enabled
@@ -47,7 +54,7 @@ const serverConfig = async (app: Express) => {
     logger.info('-------------*----------------------------------');
     logger.info('|                                               |');
     logger.info('|              Started File Server              |');
-    logger.info(`|         Server is listening on ${bind}        |`);
+    logger.info(`|         Server is listening on ${bind}      |`);
     logger.info('|                                               |');
     logger.info('-----------*------------------------------------');
 

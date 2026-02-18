@@ -2,10 +2,7 @@ import mime from 'mime-types';
 import logger from '../utils/logger';
 import AppError from '../utils/AppError';
 import httpStatus from 'http-status';
-
-// Configuration
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB default
+import {DEFAULT_MAX_FILE_SIZE, MAX_FILE_SIZE} from "../utils/constants";
 
 // Allowed file types by category
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];

@@ -40,3 +40,21 @@ export const downloadFile = (id: string): GridFSBucketReadStream => {
 
   return downloadStream;
 };
+
+
+/**
+ * Deletes a file from GridFS.
+ * @param id The ID of the file to delete.
+ * @returns A promise that resolves when the file is deleted.
+ */
+export const deleteFileFromGridFS = async (id: string): Promise<void> => {
+  return new Promise(async (resolve, reject) => {
+    const bucket = getGridFSBucket();
+    try {
+      await bucket.delete(new ObjectId(id));
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+};

@@ -35,6 +35,7 @@ const envConfig = {
   
   // Caching configuration
   cachingEnabled: process.env.CACHING_ENABLED !== 'false',
+  inMemoryCachingEnabled: process.env.IN_MEMORY_CACHING_ENABLED !== 'false',
   cacheMaxSize: parseInt(process.env.CACHE_MAX_SIZE || '100') * 1024 * 1024, // Default 100MB
   cacheTTL: parseInt(process.env.CACHE_TTL || '3600'), // Default 1 hour
   
