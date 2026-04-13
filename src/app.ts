@@ -33,7 +33,7 @@ const start = async () => {
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
-    contentSecurityPolicy: false, 
+    contentSecurityPolicy: false,
   }));
 
   rateLimiter(app);

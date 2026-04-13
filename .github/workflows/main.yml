@@ -20,6 +20,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build TypeScript
+        run: npm run build   # 👈 This creates dist/
+
       - name: Create .env.production file
         run: echo "${{ secrets.FILESERVICE_ENV_FILE }}" > .env.production
 
