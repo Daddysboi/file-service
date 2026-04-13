@@ -2,8 +2,8 @@ import express, { Express } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 
 import { dbConnection } from './config/dbConnection';
 import { globalErrorHandler } from './middlewares/errorHandling';
