@@ -2,11 +2,12 @@ import mongoose from 'mongoose';
 import { Db } from 'mongodb';
 import logger from '../utils/logger';
 import AppError from '../utils/AppError';
+import envConfig from './envConfig';
 
 let db: Db | null = null;
 
 export const dbConnection = async () => {
-  const connectionString = process.env.MONGODB_URL;
+  const connectionString = envConfig.mongodbUrl;
 
   if (!connectionString) {
     logger.error('MongoDB Url environment variable is not set!');

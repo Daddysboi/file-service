@@ -8,7 +8,7 @@ const envConfig = {
   env: process.env.NODE_ENV || 'development',
   
   // MongoDB configuration
-  mongodbUrl: process.env.MONGODB_URL || 'mongodb://localhost:27017/file-service',
+  mongodbUrl: process.env.MONGODB_URL || '',
   
   // Redis configuration
   redisUrl: process.env.REDIS_URL || '',
