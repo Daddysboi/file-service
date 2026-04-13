@@ -11,8 +11,8 @@ import corsConfig from './config/corsConfig';
 import envConfig from './config/envConfig';
 import { rateLimiter } from './config/rateLimit';
 import { initializeGridFS } from './config/gridfs';
-import routerConfig from './router';
 import serverConfig from './config/server';
+import routerConfig from './router';
 
 dotenv.config();
 const port = envConfig.port;
