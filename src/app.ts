@@ -29,12 +29,11 @@ const start = async () => {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ limit: '10mb', extended: false }));
   
-  // Explicitly configure helmet to allow cross-origin resource sharing
   app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
-    contentSecurityPolicy: false, // Disable CSP for file service as it mostly serves binary data
+    contentSecurityPolicy: false, 
   }));
 
   rateLimiter(app);
