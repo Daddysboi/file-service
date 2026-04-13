@@ -1,6 +1,6 @@
 import config from './envConfig';
 
-const allowedOrigins = [config.clientUrl, 'http://localhost:3000', 'https://localhost:3000', 'http://localhost:3001', 'https://localhost:3001'];
+const allowedOrigins = [config.clientUrl, 'http://localhost:3000', 'https://localhost:3000', 'http://localhost:3001', 'https://localhost:3001', '*'];
 
 const origin = (origin: any, callback: (error: Error | null, allowed?: boolean) => void) => {
   if (!origin || allowedOrigins.includes(origin)) {

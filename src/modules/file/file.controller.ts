@@ -14,8 +14,9 @@ import {
     FileMetadata
 } from '../../services/storage.service';
 import { StorageType } from '../../types/enums';
-import {getFileContentFromCache, setFileContentInCache} from '../../services/cache.service';
+import {getFileContentFromCache, setFileContentInCache, setFileMetadataInCache} from '../../services/cache.service';
 import {updateStorageMetrics} from '../../services/monitoring.service';
+import { FileMetadataModel } from '../../models/file.model';
 import envConfig from '../../config/envConfig';
 import logger from '../../utils/logger';
 
@@ -91,8 +92,15 @@ export const uploadSingleHandler = [
                         storageType
                     );
 
-                    // Link thumbnail to original file
+                    // Link thumbnail to original file and SAVE to database
                     fileMetadata.thumbnailId = thumbnailMetadata.id;
+                    await FileMetadataModel.findByIdAndUpdate(fileMetadata.id, { 
+                        thumbnailId: thumbnailMetadata.id 
+                    });
+                    
+                    // Update cache
+                    await setFileMetadataInCache(fileMetadata.id, fileMetadata);
+                    
                 } catch (error) {
                     logger.error(`Failed to generate thumbnail: ${error}`);
                 }
@@ -139,8 +147,7 @@ export const uploadServiceHandler = [
             return next(new AppError(httpStatus.UNAUTHORIZED, 'Service API key is required'));
         }
 
-        // Here you would validate the API key against allowed services
-        // This is a simplified check - in production, use a more robust validation
+        logger.debug(`Comparing API keys: Received='${serviceApiKey}', Expected='${process.env.SERVICE_API_KEY}'`);
         if (serviceApiKey !== process.env.SERVICE_API_KEY) {
             return next(new AppError(httpStatus.UNAUTHORIZED, 'Invalid service API key'));
         }
@@ -151,10 +158,10 @@ export const uploadServiceHandler = [
 
             // Validate file with more permissive settings for trusted services
             const {mimeType, category} = await validateFile(req.file, {
-                maxSize: envConfig.maxFileSize * 2, // Double the size limit for trusted services
+                maxSize: envConfig.maxFileSize * 2,
             });
 
-            // Process file if needed
+            // Process file
             const {buffer: processedBuffer, mimeType: processedMimeType} = await processFile(
                 req.file.buffer,
                 mimeType,
@@ -208,7 +215,7 @@ export const uploadServiceHandler = [
  * Upload multiple files in a batch
  */
 export const uploadBatchHandler = [
-    upload.array('files', 50), // Allow up to 50 files in a batch
+    upload.array('files', 50),
     catchAsyncError(async (req: Request, res: Response, next: NextFunction) => {
         const files = req.files as Express.Multer.File[];
         if (!files || files.length === 0) {
@@ -216,45 +223,24 @@ export const uploadBatchHandler = [
         }
 
         try {
-            // Process files in parallel with concurrency limit
-            const concurrencyLimit = 5; // Process 5 files at a time
-            const results: Array<{
-                id: string;
-                filename: string;
-                size: number;
-                contentType: string;
-                category: FileCategory;
-            } | {
-                filename: string;
-                error: string;
-            }> = [];
+            const concurrencyLimit = 5;
+            const results: any[] = [];
 
-            // Process files in batches to limit concurrency
             for (let i = 0; i < files.length; i += concurrencyLimit) {
                 const batch = files.slice(i, i + concurrencyLimit);
                 const batchResults = await Promise.all(
                     batch.map(async (file) => {
                         try {
-                            // Sanitize filename
                             file.originalname = sanitizeFilename(file.originalname);
-
-                            // Validate file
                             const {mimeType, category} = await validateFile(file);
-
-                            // Process file
                             const {buffer: processedBuffer, mimeType: processedMimeType} = await processFile(
                                 file.buffer,
                                 mimeType,
                                 category,
-                                {
-                                    optimize: envConfig.imageOptimizationEnabled,
-                                }
+                                { optimize: envConfig.imageOptimizationEnabled }
                             );
 
-                            // Determine storage type
                             const storageType = getPreferredStorageType(processedBuffer.length, category);
-
-                            // Store file
                             const fileMetadata = await storeFile(
                                 processedBuffer,
                                 {
@@ -267,7 +253,6 @@ export const uploadBatchHandler = [
                                 storageType
                             );
 
-                            // Update metrics
                             updateStorageMetrics(storageType, processedBuffer.length);
 
                             return {
@@ -290,7 +275,6 @@ export const uploadBatchHandler = [
                 results.push(...batchResults);
             }
 
-            // Return success response
             res.status(httpStatus.CREATED).json({
                 message: 'Batch upload processed',
                 totalFiles: files.length,
@@ -312,18 +296,15 @@ export const getFileHandler = catchAsyncError(async (req: Request, res: Response
     const {id} = req.params;
     const {thumbnail, download} = req.query;
 
-    try {
-        // Check if this is a thumbnail request
-        const fileId = thumbnail === 'true' ? id : id;
+    logger.debug(`Retrieving file: ID=${id}, thumbnail=${thumbnail}`);
 
-        // Try to get file from cache first
+    try {
+        // Try content cache first
         if (envConfig.cachingEnabled) {
-            const cachedContent = await getFileContentFromCache(fileId);
+            const cachedContent = await getFileContentFromCache(id);
             if (cachedContent) {
-                // Get metadata for headers
-                const metadata = await getFileMetadata(fileId);
+                const metadata = await getFileMetadata(id);
                 if (metadata) {
-                    // Set appropriate headers
                     res.set({
                         'Content-Type': metadata.contentType,
                         'Content-Disposition': getContentDisposition(
@@ -331,31 +312,40 @@ export const getFileHandler = catchAsyncError(async (req: Request, res: Response
                             metadata.contentType,
                             download === 'true' ? 'attachment' : 'inline'
                         ),
-                        'Cache-Control': 'public, max-age=86400', // Cache for 1 day
-                        'ETag': `"${fileId}"`,
+                        'Cache-Control': 'public, max-age=86400',
+                        'ETag': `"${id}"`,
                     });
-
                     return res.send(cachedContent);
                 }
             }
         }
 
-        // Get file metadata
-        const metadata = await getFileMetadata(fileId);
+        // Get metadata
+        const metadata = await getFileMetadata(id);
         if (!metadata) {
-            return next(new AppError(httpStatus.NOT_FOUND, 'File not found'));
+            logger.warn(`Metadata NOT FOUND for ID: ${id}`);
+            return next(new AppError(httpStatus.NOT_FOUND, 'File metadata not found'));
         }
 
-        // If thumbnail was requested but not found, fall back to original
+        logger.debug(`Metadata found for ${id}: storageType=${metadata.storageType}, innerID=${metadata.id}, thumbnailId=${metadata.thumbnailId}`);
+
+        // Handle thumbnail logic
         let targetMetadata: FileMetadata = metadata;
-        if (thumbnail === 'true' && metadata.thumbnailId) {
-            const thumbnailMetadata = await getFileMetadata(metadata.thumbnailId);
-            if (thumbnailMetadata) {
-                targetMetadata = thumbnailMetadata;
+        if (thumbnail === 'true') {
+            if (metadata.thumbnailId) {
+                const thumbnailMetadata = await getFileMetadata(metadata.thumbnailId);
+                if (thumbnailMetadata) {
+                    targetMetadata = thumbnailMetadata;
+                    logger.debug(`Using thumbnail metadata: ${targetMetadata.id}`);
+                } else {
+                    logger.warn(`Thumbnail metadata ${metadata.thumbnailId} not found, falling back to original`);
+                }
+            } else {
+                logger.debug('No thumbnail available for this file, using original');
             }
         }
 
-        // Set appropriate headers
+        // Set headers
         res.set({
             'Content-Type': targetMetadata.contentType,
             'Content-Disposition': getContentDisposition(
@@ -363,33 +353,56 @@ export const getFileHandler = catchAsyncError(async (req: Request, res: Response
                 targetMetadata.contentType,
                 download === 'true' ? 'attachment' : 'inline'
             ),
-            'Cache-Control': 'public, max-age=86400', // Cache for 1 day
+            'Cache-Control': 'public, max-age=86400',
             'ETag': `"${targetMetadata.id}"`,
         });
 
-        // Handle conditional requests
         const ifNoneMatch = req.headers['if-none-match'];
         if (ifNoneMatch && ifNoneMatch.includes(`"${targetMetadata.id}"`)) {
             return res.status(304).end();
         }
 
-        // Get file content
-        const fileContent = await retrieveFile(targetMetadata);
-
-        // If it's a stream, pipe it to the response
-        if ('pipe' in fileContent) {
-            // For streams, we can't cache easily, so just pipe
-            fileContent.pipe(res);
-        } else {
-            // For buffers, we can cache and send
-            if (envConfig.cachingEnabled && targetMetadata.size < 5 * 1024 * 1024) { // Only cache files < 5MB
-                await setFileContentInCache(targetMetadata.id, fileContent, targetMetadata.size);
+        // Stream file
+        let fileStream;
+        try {
+            logger.debug(`Opening stream for storage ID: ${targetMetadata.id}`);
+            fileStream = await retrieveFile(targetMetadata);
+        } catch (err: any) {
+            logger.error(`Retrieve error for ${targetMetadata.id}: ${err.message}`);
+            if (err.message && err.message.includes('FileNotFound')) {
+                return next(new AppError(httpStatus.NOT_FOUND, 'Physical file not found in storage (GridFS)'));
             }
-            res.send(fileContent);
+            throw err;
         }
-    } catch (error) {
-        logger.error(`Error retrieving file: ${error}`);
-        return next(new AppError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to retrieve file'));
+
+        if (envConfig.cachingEnabled && targetMetadata.size < 5 * 1024 * 1024) {
+            const chunks: Buffer[] = [];
+            fileStream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+            fileStream.on('end', async () => {
+                const buffer = Buffer.concat(chunks);
+                await setFileContentInCache(targetMetadata.id, buffer, targetMetadata.size);
+                if (!res.headersSent) res.send(buffer);
+            });
+            fileStream.on('error', (err: any) => {
+                logger.error(`Stream error: ${err.message}`);
+                if (!res.headersSent) {
+                    const status = err.message.includes('FileNotFound') ? httpStatus.NOT_FOUND : httpStatus.INTERNAL_SERVER_ERROR;
+                    next(new AppError(status, err.message.includes('FileNotFound') ? 'Physical file missing' : 'Failed to read stream'));
+                }
+            });
+        } else {
+            fileStream.on('error', (err: any) => {
+                logger.error(`Pipe error: ${err.message}`);
+                if (!res.headersSent) {
+                    const status = err.message.includes('FileNotFound') ? httpStatus.NOT_FOUND : httpStatus.INTERNAL_SERVER_ERROR;
+                    next(new AppError(status, 'File storage error'));
+                }
+            });
+            fileStream.pipe(res);
+        }
+    } catch (error: any) {
+        logger.error(`Handler error: ${error.message}`);
+        return next(new AppError(httpStatus.INTERNAL_SERVER_ERROR, 'Error retrieving file'));
     }
 });
 
@@ -398,27 +411,11 @@ export const getFileHandler = catchAsyncError(async (req: Request, res: Response
  */
 export const deleteFileHandler = catchAsyncError(async (req: Request, res: Response, next: NextFunction) => {
     const {id} = req.params;
+    const metadata = await getFileMetadata(id);
+    if (!metadata) return next(new AppError(httpStatus.NOT_FOUND, 'File not found'));
 
-    try {
-        // Get file metadata
-        const metadata = await getFileMetadata(id);
-        if (!metadata) {
-            return next(new AppError(httpStatus.NOT_FOUND, 'File not found'));
-        }
+    const deleted = await deleteFile(metadata);
+    if (!deleted) return next(new AppError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete file'));
 
-        // Delete file
-        const deleted = await deleteFile(metadata);
-        if (!deleted) {
-            return next(new AppError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete file'));
-        }
-
-        // Return success response
-        res.status(httpStatus.OK).json({
-            message: 'File deleted successfully',
-            id: metadata.id,
-        });
-    } catch (error) {
-        logger.error(`Error deleting file: ${error}`);
-        return next(new AppError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete file'));
-    }
+    res.status(httpStatus.OK).json({ message: 'File deleted successfully', id });
 });

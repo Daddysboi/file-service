@@ -4,7 +4,7 @@ dotenv.config();
 
 const envConfig = {
   // Server configuration
-  port: process.env.PORT || 3000,
+  port: process.env.PORT || 8001,
   env: process.env.NODE_ENV || 'development',
   
   // MongoDB configuration
@@ -25,7 +25,7 @@ const envConfig = {
   
   // File service configuration
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '50') * 1024 * 1024, // Default 50MB
-  defaultStorageType: process.env.DEFAULT_STORAGE_TYPE || 'gridfs', // 'gridfs', 's3', or 'local'
+  defaultStorageType: process.env.DEFAULT_STORAGE_TYPE || 'gridfs', // 'gridfs', 's3', 'local'
   
   // Image processing configuration
   imageOptimizationEnabled: process.env.IMAGE_OPTIMIZATION_ENABLED !== 'false',

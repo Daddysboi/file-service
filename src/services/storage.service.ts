@@ -24,7 +24,6 @@ export interface FileMetadata {
   uploadDate: Date;
   storageType: StorageType;
   path?: string; // For local storage
-  // S3-related fields (bucket, key) have been removed
   thumbnailId?: string; // ID of the thumbnail file
   processingOptions?: any; // Any processing options applied
 }
@@ -42,9 +41,6 @@ const ensureLocalStorageDir = () => {
 
 /**
  * Store file in GridFS
- * @param buffer File buffer
- * @param metadata File metadata
- * @returns File ID
  */
 const storeFileInGridFS = (buffer: Buffer, metadata: Omit<FileMetadata, 'id' | 'storageType'>): Promise<ObjectId> => {
   return new Promise((resolve, reject) => {
@@ -72,13 +68,8 @@ const storeFileInGridFS = (buffer: Buffer, metadata: Omit<FileMetadata, 'id' | '
   });
 };
 
-// S3 storage functionality has been removed to avoid AWS costs
-
 /**
  * Store file in local filesystem
- * @param buffer File buffer
- * @param metadata File metadata
- * @returns File path
  */
 const storeFileLocally = async (
   buffer: Buffer,
@@ -86,15 +77,9 @@ const storeFileLocally = async (
 ): Promise<string> => {
   try {
     ensureLocalStorageDir();
-
-    // Create a unique filename to avoid collisions
     const uniqueFilename = `${uuidv4()}-${sanitizeFilename(metadata.originalname)}`;
     const filePath = path.join(LOCAL_STORAGE_DIR, uniqueFilename);
-
-    // Write file to disk
     await fs.promises.writeFile(filePath, buffer);
-    logger.debug(`File stored locally: ${filePath}`);
-
     return filePath;
   } catch (error) {
     logger.error(`Error storing file locally: ${error}`);
@@ -104,10 +89,6 @@ const storeFileLocally = async (
 
 /**
  * Store file using the specified storage type
- * @param buffer File buffer
- * @param metadata File metadata (without id and storageType)
- * @param storageType Storage type to use
- * @returns Complete file metadata with ID
  */
 export const storeFile = async (
   buffer: Buffer,
@@ -115,10 +96,8 @@ export const storeFile = async (
   storageType: StorageType = StorageType.GRIDFS
 ): Promise<FileMetadata> => {
   try {
-    // Set upload date
     const uploadDate = new Date();
 
-    // Store file based on storage type
     switch (storageType) {
       case StorageType.GRIDFS: {
         const fileId = await storeFileInGridFS(buffer, { ...metadata, uploadDate });
@@ -129,16 +108,10 @@ export const storeFile = async (
           storageType: StorageType.GRIDFS,
         };
 
-        // Save metadata to database
         await FileMetadataModel.create({ ...fileMetadata, _id: fileMetadata.id });
-
-        // Cache metadata
         await setFileMetadataInCache(fileMetadata.id, fileMetadata);
-
         return fileMetadata;
       }
-
-      // S3 storage case has been removed to avoid AWS costs
 
       case StorageType.LOCAL: {
         const filePath = await storeFileLocally(buffer, { ...metadata, uploadDate });
@@ -151,12 +124,8 @@ export const storeFile = async (
           path: filePath,
         };
 
-        // Save metadata to database
         await FileMetadataModel.create({ ...fileMetadata, _id: fileMetadata.id });
-
-        // Cache metadata
         await setFileMetadataInCache(fileMetadata.id, fileMetadata);
-
         return fileMetadata;
       }
 
@@ -171,25 +140,20 @@ export const storeFile = async (
 
 /**
  * Retrieve file from GridFS
- * @param id File ID
- * @returns GridFS download stream
  */
 const retrieveFileFromGridFS = (id: string) => {
+  if (!id) throw new Error('Cannot retrieve file from GridFS with undefined ID');
   try {
     const bucket = getGridFSBucket();
     return bucket.openDownloadStream(new ObjectId(id));
   } catch (error) {
-    logger.error(`Error retrieving file from GridFS: ${error}`);
+    logger.error(`Error retrieving file from GridFS for ID ${id}: ${error}`);
     throw error;
   }
 };
 
-// S3 retrieval functionality has been removed to avoid AWS costs
-
 /**
  * Retrieve file from local filesystem
- * @param filePath Path to the file
- * @returns File buffer
  */
 const retrieveFileFromLocal = async (filePath: string): Promise<Buffer> => {
   try {
@@ -202,54 +166,51 @@ const retrieveFileFromLocal = async (filePath: string): Promise<Buffer> => {
 
 /**
  * Retrieve file metadata
- * @param id File ID
- * @returns File metadata
  */
 export const getFileMetadata = async (id: string): Promise<FileMetadata | null> => {
   try {
-    // Try to get metadata from cache first
     const cachedMetadata = await getFileMetadataFromCache(id);
-    if (cachedMetadata) {
-      return cachedMetadata as FileMetadata;
-    }
+    if (cachedMetadata) return cachedMetadata as FileMetadata;
 
-    // If not in cache, retrieve from database
+    // Use .lean() but manually map _id to id because lean objects don't have virtuals
     const dbMetadata = await FileMetadataModel.findById(id).lean();
     if (dbMetadata) {
-      // Cache metadata for future requests
-      await setFileMetadataInCache(id, dbMetadata as FileMetadata);
-      return dbMetadata as FileMetadata;
+      const metadata = {
+        ...dbMetadata,
+        id: dbMetadata._id.toString()
+      } as unknown as FileMetadata;
+      
+      await setFileMetadataInCache(id, metadata);
+      return metadata;
     }
 
-    // If not in database, try to retrieve from GridFS (for legacy or direct GridFS entries)
-    const bucket = getGridFSBucket();
-    const files = await bucket.find({ _id: new ObjectId(id) }).toArray();
+    // Try fallback to GridFS directly
+    try {
+      const bucket = getGridFSBucket();
+      const files = await bucket.find({ _id: new ObjectId(id) }).toArray();
 
-    if (files.length === 0) {
+      if (files.length === 0) return null;
+
+      const file = files[0];
+      const metadata: FileMetadata = {
+        id: file._id.toHexString(),
+        filename: file.filename,
+        originalname: file.metadata?.originalname || file.filename,
+        contentType: file.metadata?.contentType || 'application/octet-stream',
+        size: file.length,
+        category: file.metadata?.category || FileCategory.OTHER,
+        uploadDate: file.uploadDate,
+        storageType: StorageType.GRIDFS,
+        thumbnailId: file.metadata?.thumbnailId,
+        processingOptions: file.metadata?.processingOptions,
+      };
+
+      await FileMetadataModel.create({ ...metadata, _id: metadata.id });
+      await setFileMetadataInCache(id, metadata);
+      return metadata;
+    } catch (gridFsError) {
       return null;
     }
-
-    const file = files[0];
-    const metadata: FileMetadata = {
-      id: file._id.toHexString(),
-      filename: file.filename,
-      originalname: file.metadata?.originalname || file.filename,
-      contentType: file.metadata?.contentType || 'application/octet-stream',
-      size: file.length,
-      category: file.metadata?.category || FileCategory.OTHER,
-      uploadDate: file.uploadDate,
-      storageType: StorageType.GRIDFS, // Assuming GridFS if found here
-      thumbnailId: file.metadata?.thumbnailId,
-      processingOptions: file.metadata?.processingOptions,
-    };
-
-    // Save to database if found in GridFS but not in our metadata collection
-    await FileMetadataModel.create({ ...metadata, _id: metadata.id });
-
-    // Cache metadata for future requests
-    await setFileMetadataInCache(id, metadata);
-
-    return metadata;
   } catch (error) {
     logger.error(`Error retrieving file metadata: ${error}`);
     return null;
@@ -258,21 +219,15 @@ export const getFileMetadata = async (id: string): Promise<FileMetadata | null> 
 
 /**
  * Retrieve file content
- * @param metadata File metadata
- * @returns File content as stream or buffer
  */
-export const retrieveFile = async (metadata: FileMetadata): Promise<Readable | Buffer> => {
+export const retrieveFile = async (metadata: FileMetadata): Promise<Readable> => {
   try {
     switch (metadata.storageType) {
       case StorageType.GRIDFS:
         return retrieveFileFromGridFS(metadata.id);
 
-      // S3 case has been removed to avoid AWS costs
-
       case StorageType.LOCAL:
-        if (!metadata.path) {
-          throw new Error('Missing file path in metadata');
-        }
+        if (!metadata.path) throw new Error('Missing file path in metadata');
         const localBuffer = await retrieveFileFromLocal(metadata.path);
         const localStream = new Readable();
         localStream.push(localBuffer);
@@ -290,8 +245,6 @@ export const retrieveFile = async (metadata: FileMetadata): Promise<Readable | B
 
 /**
  * Delete file
- * @param metadata File metadata
- * @returns True if deletion was successful
  */
 export const deleteFile = async (metadata: FileMetadata): Promise<boolean> => {
   try {
@@ -301,12 +254,8 @@ export const deleteFile = async (metadata: FileMetadata): Promise<boolean> => {
         await bucket.delete(new ObjectId(metadata.id));
         break;
 
-      // S3 case has been removed to avoid AWS costs
-
       case StorageType.LOCAL:
-        if (!metadata.path) {
-          throw new Error('Missing file path in metadata');
-        }
+        if (!metadata.path) throw new Error('Missing file path in metadata');
         await fs.promises.unlink(metadata.path);
         break;
 
@@ -314,7 +263,6 @@ export const deleteFile = async (metadata: FileMetadata): Promise<boolean> => {
         throw new Error(`Unsupported storage type: ${metadata.storageType}`);
     }
 
-    // Delete thumbnail if exists
     if (metadata.thumbnailId) {
       try {
         const thumbnailMetadata = await getFileMetadata(metadata.thumbnailId);
@@ -327,12 +275,8 @@ export const deleteFile = async (metadata: FileMetadata): Promise<boolean> => {
       }
     }
 
-    // Delete metadata from database
     await FileMetadataModel.findByIdAndDelete(metadata.id);
-
-    // Invalidate cache
     await invalidateFileCache(metadata.id);
-
     return true;
   } catch (error) {
     logger.error(`Error deleting file: ${error}`);
@@ -341,17 +285,11 @@ export const deleteFile = async (metadata: FileMetadata): Promise<boolean> => {
 };
 
 /**
- * Get preferred storage type based on file metadata and configuration
- * @param size File size in bytes
- * @param category File category
- * @returns Preferred storage type
+ * Get preferred storage type
  */
 export const getPreferredStorageType = (_size: number, category: FileCategory): StorageType => {
-  // Use local storage for temporary files if configured
   if (envConfig.localStoragePath && category === FileCategory.OTHER) {
     return StorageType.LOCAL;
   }
-
-  // Default to GridFS
   return StorageType.GRIDFS;
 };

@@ -16,7 +16,6 @@ const metrics = {
     responseTimeCount: 0,
     storageUsage: {
         gridfs: 0,
-        s3: 0,
         local: 0,
     },
 };
@@ -178,7 +177,6 @@ export const resetMetrics = () => {
     metrics.responseTimeCount = 0;
     metrics.storageUsage = {
         gridfs: 0,
-        s3: 0,
         local: 0,
     };
 };

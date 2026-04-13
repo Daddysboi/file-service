@@ -16,22 +16,25 @@ const router = express.Router();
 router.get('/health', healthCheckHandler);
 router.get('/metrics', metricsHandler);
 
+// Public routes (no JWT required)
+
+// Route for file upload from another backend service (protected by API Key in handler)
+router.post('/upload/service', uploadServiceHandler);
+
+// Route to get a file by its ID (Public access)
+// If you need this to be private, move it below authenticateJWT
+router.get('/:id', getFileHandler);
+
 // Middleware to protect all other routes in this module
 router.use(authenticateJWT);
 
-// Route for single file upload from frontend
+// Route for single file upload from frontend (User must be logged in)
 router.post('/upload/single', uploadRateLimiter, uploadSingleHandler);
 
-// Route for file upload from another backend service
-router.post('/upload/service', uploadServiceHandler);
-
-// Route for batch file upload
+// Route for batch file upload (User must be logged in)
 router.post('/upload/batch', uploadRateLimiter, uploadBatchHandler);
 
-// Route to get a file by its ID
-router.get('/:id', getFileHandler);
-
-// Route to delete a file by its ID
+// Route to delete a file by its ID (User must be logged in)
 router.delete('/:id', deleteFileHandler);
 
 export default router;

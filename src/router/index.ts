@@ -9,11 +9,18 @@ const apiV1Router = express.Router();
 
 const routerConfig = (app: express.Express): void => {
   app.get('/', healthCheck);
+
   apiV1Router.use('/auth', authRouter);
   apiV1Router.use('/files', fileRouter);
   app.use('/api/v1', apiV1Router);
 
-  app.use((_req: Request, _res: Response, next: NextFunction) => {
+  // Catch-all 404 handler
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    // Silently ignore common browser probes to avoid noisy error logs
+    if (req.path === '/favicon.ico' || req.path.startsWith('/.well-known')) {
+      return res.status(httpStatus.NOT_FOUND).end();
+    }
+
     next(new AppError(httpStatus.NOT_FOUND, 'Not found'));
   });
 };
